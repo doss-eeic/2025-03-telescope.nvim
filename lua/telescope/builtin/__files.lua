@@ -1,4 +1,5 @@
 local action_state = require "telescope.actions.state"
+local frecency = require('telescope._internal.frecency') 
 local action_set = require "telescope.actions.set"
 local actions = require "telescope.actions"
 local finders = require "telescope.finders"
@@ -384,13 +385,75 @@ files.find_files = function(opts)
 
   opts.entry_maker = opts.entry_maker or make_entry.gen_from_file(opts)
 
+  local Job = require("plenary.job")
+  local results = {}
+  
+  do
+    local j = Job:new({
+      command = find_command[1],
+      args = vim.list_slice(find_command, 2, #find_command),
+      cwd = opts.cwd or vim.loop.cwd(),
+    })
+    j:sync()
+    local out = j:result() or {}
+
+    for i, p in ipairs(out) do
+      local abs = p
+      if not Path:new(p):is_absolute() then
+        abs = Path:new(opts.cwd or vim.loop.cwd()):joinpath(p):absolute()
+      end
+      table.insert(results, abs)
+    end
+  end
+
+  local scored = {}
+  for _, p in ipairs(results) do
+    local s = 0
+    local ok, _ = pcall(function() s = frecency._score and frecency._score(p) or (frecency.score and frecency.score(p)) end)
+    table.insert(scored, { path = p, score = s or 0 })
+  end
+  table.sort(scored, function(a, b)
+    if a.score == b.score then return a.path < b.path end
+    return a.score > b.score
+  end)
+
+  local sorted_results = {}
+  for _, r in ipairs(scored) do table.insert(sorted_results, r.path) end
+
+  local finder = finders.new_table {
+    results = sorted_results,
+    entry_maker = opts.entry_maker or make_entry.gen_from_file(opts),
+  }
+
   pickers
     .new(opts, {
-      prompt_title = "Find Files",
+      prompt_title = "Find Files(frecency)",
       __locations_input = true,
-      finder = finders.new_oneshot_job(find_command, opts),
+      finder = finder,
       previewer = conf.grep_previewer(opts),
       sorter = conf.file_sorter(opts),
+
+      attach_mappings = function(prompt_bufnr, map)
+        action_set.select:enhance {
+          post = function()
+            local selection = action_state.get_selected_entry()
+            if not selection then
+              return
+            end
+
+            local path = selection.path or selection.filename or selection.value
+            if not path or path == "" then return end
+            local ok, norm = pcall(vim.fn.fnamemodify, path, ":p")
+            if ok and norm and norm ~= "" then
+              pcall(function() frecency.inc(norm) end)
+            else 
+              pcall(function() frecency.inc(path) end)
+            end
+          end,
+        }
+
+        return true
+      end,
     })
     :find()
 end
