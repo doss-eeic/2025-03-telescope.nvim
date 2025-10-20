@@ -1,4 +1,4 @@
 build/
 doc/tags
-
+**/.DS_Store
 .luacheckcache
