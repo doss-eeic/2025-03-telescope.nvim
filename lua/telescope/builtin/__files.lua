@@ -427,7 +427,7 @@ files.find_files = function(opts)
 
   pickers
     .new(opts, {
-      prompt_title = "Find Files(frecency)",
+      prompt_title = "Find Files",
       __locations_input = true,
       finder = finder,
       previewer = conf.grep_previewer(opts),

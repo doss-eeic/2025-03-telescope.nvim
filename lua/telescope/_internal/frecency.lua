@@ -1,4 +1,3 @@
--- lua/telescope/_internal/frecency.lua
 local Path = require("plenary.path")
 local M = {}
 
@@ -7,12 +6,26 @@ local db = nil
 
 local function load_db()
   if db then return db end
+
   local p = Path:new(db_file)
-  if not p:exists() then db = {} return db end
-  local ok, content = p:read()
-  if not ok then db = {} return db end
-  local ok2, t = pcall(vim.fn.json_decode, content)
-  db = (ok2 and type(t)=='table') and t or {}
+  if not p:exists() then
+    db = {}
+    return db
+  end
+  local ok, content = pcall(function() return p:read() end)
+  if not ok or content == nil or content == "" then
+    db = {}
+    return db
+  end
+
+  local decode_ok, decoded = pcall(vim.fn.json_decode, content)
+  if decode_ok and type(decoded) == "table" then
+    db = decoded
+  else
+    vim.notify("failed to decode DB", vim.log.levels.WARN)
+    db = {}
+  end
+
   return db
 end
 
@@ -20,15 +33,16 @@ local function save_db()
   if not db then return end
   local p = Path:new(db_file)
   p:parent():mkdir({ parents = true })
+
   local ok, err = pcall(function()
-    p:write(vim.fn.json_encode(db), "w")
+    p:write(vim.fn.json_encode(db))
   end)
   if not ok then
     local data = vim.fn.json_encode(db)
     local lines = { data }
     local wrote, write_err = pcall(function() vim.fn.writefile(lines, db_file, "b") end)
     if not wrote then
-      vim.notify("frecency: failed to save DB: " .. tostirng(write_err), vim.log.levels.WARN)
+      vim.notify("failed to save DB" .. tostring(write_err), vim.log.levels.WARN)
     end
   end
 end
